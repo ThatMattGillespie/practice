@@ -233,6 +233,13 @@ ol.stages span { color: var(--muted); font-size: 14px; }
 .ring circle { fill: none; stroke-width: 2; }
 .ring .track { stroke: #2a261f; }
 .ring .bar { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset .5s linear; }
+.ring { touch-action: none; cursor: grab; border-radius: 50%; }
+.ring svg { overflow: visible; }
+.ring .knob { fill: var(--accent); stroke: #0b0a08; stroke-width: 1.5; transition: r .2s var(--ease), opacity 1.2s var(--ease); }
+.ring.dragging { cursor: grabbing; }
+.ring.dragging .bar { transition: none; }
+.ring.dragging .knob { r: 5; }
+.ring:focus-visible { outline: 2px solid var(--accent); outline-offset: 6px; }
 .ring .inner { position: absolute; inset: 0; display: grid; place-items: center; align-content: center; gap: 4px; }
 .ring .time { font: 300 44px/1 var(--sans); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
 .play {

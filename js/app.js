@@ -276,8 +276,8 @@ function drawSession() {
   } else if (S.state === 'playing') {
     el.innerHTML = `${head}
     <div class="center">
-      <div class="ring">
-        <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="track" cx="50" cy="50" r="48"/><circle class="bar" id="bar" cx="50" cy="50" r="48" stroke-dasharray="301.6" stroke-dashoffset="301.6"/></svg>
+      <div class="ring" id="ring" role="slider" tabindex="0" aria-label="Position in recording" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+        <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="track" cx="50" cy="50" r="46"/><circle class="bar" id="bar" cx="50" cy="50" r="46" stroke-dasharray="289" stroke-dashoffset="289"/><circle class="knob fadeable" id="knob" cx="96" cy="50" r="3.2"/></svg>
         <div class="inner"><span class="time" id="remain">${clock(it.minutes * 60)}</span><span class="muted small fadeable">remaining</span></div>
       </div>
       <div class="controls fadeable">
@@ -289,6 +289,7 @@ function drawSession() {
     <div class="fadeable" style="text-align:center"><button class="btn ghost" data-act="end">End session</button></div>`;
     tick();
     wake();
+    bindScrub();
   } else if (S.state === 'done') {
     const mins = Math.max(1, Math.round(S.listened / 60));
     el.innerHTML = `<div></div>
@@ -369,16 +370,68 @@ function setMedia() {
     artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
   });
   const h = { play: () => audio.play(), pause: () => audio.pause(),
-    seekbackward: () => { audio.currentTime -= 15; }, seekforward: () => { audio.currentTime += 15; } };
+    seekbackward: () => { audio.currentTime -= 15; }, seekforward: () => { audio.currentTime += 15; },
+    seekto: (d) => { audio.currentTime = d.seekTime; } };
   for (const [k, f] of Object.entries(h)) { try { navigator.mediaSession.setActionHandler(k, f); } catch {} }
 }
 
+const RING = 289; // circumference of the r=46 ring
+const duration = () => (audio.duration && isFinite(audio.duration) ? audio.duration : S.item.minutes * 60);
+
 function tick() {
   if (!S || S.state !== 'playing') return;
-  const dur = audio.duration && isFinite(audio.duration) ? audio.duration : S.item.minutes * 60;
+  const dur = duration();
+  const f = S.scrub ?? Math.min(1, audio.currentTime / dur);
   const r = document.getElementById('remain'), bar = document.getElementById('bar');
-  if (r) r.textContent = clock(dur - audio.currentTime);
-  if (bar) bar.style.strokeDashoffset = String(301.6 * (1 - audio.currentTime / dur));
+  const knob = document.getElementById('knob'), ring = document.getElementById('ring');
+  if (r) r.textContent = clock(dur * (1 - f));
+  if (bar) bar.style.strokeDashoffset = String(RING * (1 - f));
+  if (knob) { const a = f * 2 * Math.PI; knob.setAttribute('cx', 50 + 46 * Math.cos(a)); knob.setAttribute('cy', 50 + 46 * Math.sin(a)); }
+  if (ring) { ring.setAttribute('aria-valuenow', Math.round(f * 100)); ring.setAttribute('aria-valuetext', `${clock(dur * f)} of ${clock(dur)}`); }
+}
+
+// Drag around the ring to move through the recording. The seek happens on release.
+function bindScrub() {
+  const ring = document.getElementById('ring');
+  if (!ring) return;
+  const fracAt = (e) => {
+    const b = ring.getBoundingClientRect();
+    const x = e.clientX - b.left - b.width / 2, y = e.clientY - b.top - b.height / 2;
+    return { f: ((Math.atan2(x, -y) / (2 * Math.PI)) + 1) % 1, d: Math.hypot(x, y) / (b.width / 2) };
+  };
+  ring.addEventListener('pointerdown', (e) => {
+    const { f, d } = fracAt(e);
+    if (d < 0.6) return; // leave the centre alone so a stray tap on the time doesn't seek
+    e.preventDefault();
+    ring.setPointerCapture(e.pointerId);
+    ring.classList.add('dragging');
+    S.scrub = f; wake(); tick();
+  });
+  ring.addEventListener('pointermove', (e) => {
+    if (S?.scrub == null) return;
+    let { f } = fracAt(e);
+    // Don't let a drag past the top wrap from the end to the start (or back).
+    if (S.scrub > 0.75 && f < 0.25) f = 1;
+    else if (S.scrub < 0.25 && f > 0.75) f = 0;
+    S.scrub = f; wake(); tick();
+  });
+  const release = () => {
+    if (S?.scrub == null) return;
+    const dur = duration();
+    audio.currentTime = Math.min(dur - 1, S.scrub * dur);
+    S.scrub = null;
+    ring.classList.remove('dragging');
+    tick();
+  };
+  ring.addEventListener('pointerup', release);
+  ring.addEventListener('pointercancel', release);
+  ring.addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 15, ArrowUp: 15, ArrowLeft: -15, ArrowDown: -15, PageUp: 60, PageDown: -60 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    audio.currentTime = Math.max(0, Math.min(duration() - 1, audio.currentTime + step));
+    wake();
+  });
 }
 audio.addEventListener('timeupdate', () => {
   if (!S || S.state !== 'playing') return;
