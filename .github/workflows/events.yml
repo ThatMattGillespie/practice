@@ -1,0 +1,29 @@
+name: Sync community calendar
+on:
+  schedule:
+    - cron: "17 11 * * *"   # daily, early morning Pacific
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: node tools/events.mjs
+        env:
+          VAULT_KEY: ${{ secrets.VAULT_KEY }}
+          CAL_URL: ${{ secrets.CAL_URL }}
+      - name: Commit if changed
+        run: |
+          if ! git diff --quiet vault/events.bin; then
+            git config user.name "calendar-sync"
+            git config user.email "actions@users.noreply.github.com"
+            git add vault/events.bin
+            git commit -m "Sync calendar"
+            git push
+          fi
